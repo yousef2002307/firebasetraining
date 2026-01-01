@@ -35,16 +35,37 @@ class FirebaseController extends Controller
 
 public function saveToken(Request $request)
 {
-    // In a real app, you would associate this token with the authenticated user
-    // For this example, we'll just store it in the session
-    $request->session()->put('fcm_token', $request->token);
-    return response()->json(['message' => 'Token saved successfully.']);
+    // Hardcoded user ID for now - change this manually as needed
+    $userId = 2; // Change this to test different users (e.g., 1, 2, 3, etc.)
+    
+    $token = $request->token;
+    
+    // Check if this token already exists for this user
+    $exists = \App\Models\FcmToken::where('user_id', $userId)
+        ->where('token', $token)
+        ->exists();
+    
+    if (!$exists) {
+        // Store new token in database associated with user
+        \App\Models\FcmToken::create([
+            'user_id' => $userId,
+            'token' => $token
+        ]);
+    }
+    
+    return response()->json(['message' => 'Token saved successfully.', 'user_id' => $userId]);
 }
 
 
-  public function showSendForm()
+    public function showSendForm()
     {
         return view('send-notification');
+    }
+
+    public function listUserTokens()
+    {
+        $users = \App\Models\User::with('fcmTokens')->get();
+        return view('list-tokens', ['users' => $users]);
     }
 
     public function sendNotification(Request $request)
@@ -52,35 +73,69 @@ public function saveToken(Request $request)
     $request->validate([
         'title' => 'required|string|max:255',
         'body' => 'required|string',
-        'token' => 'required|string'
+        'user_id' => 'required|integer'
     ]);
 
     try {
-        // Validate token format (FCM tokens are typically 150+ characters)
-        $token = trim($request->token);
-        if (strlen($token) < 100) {
-            return back()->with('error', 'Invalid FCM token format. Token should be longer. Make sure you copied the full token from the notification receiver page.');
+        // Get user's FCM tokens
+        $user = \App\Models\User::find($request->user_id);
+        
+        if (!$user) {
+            return back()->with('error', 'User not found.');
+        }
+        
+        $tokens = $user->fcmTokens()->pluck('token')->toArray();
+        
+        if (empty($tokens)) {
+            return back()->with('error', 'No FCM tokens found for this user. Please open the notification receiver page first.');
         }
 
-        $message = CloudMessage::fromArray([
-            'token' => $token,
-            'notification' => [
-                'title' => $request->title,
-                'body' => $request->body
-            ],
-            'webpush' => [
-                'fcmOptions' => [
-                    'link' => url('/')
-                ]
-            ],
-            'data' => [
-                'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
-            ]
+        \Log::info('Sending notification to user ' . $request->user_id, [
+            'token_count' => count($tokens),
+            'title' => $request->title,
+            'body' => $request->body
         ]);
 
-        $this->messaging->send($message);
+        $successCount = 0;
+        $failureMessages = [];
 
-        return back()->with('success', 'Notification sent successfully!');
+        foreach ($tokens as $token) {
+            try {
+                \Log::info('Attempting to send to token: ' . substr($token, 0, 50) . '...');
+                
+                $message = CloudMessage::fromArray([
+                    'token' => $token,
+                    'notification' => [
+                        'title' => $request->title,
+                        'body' => $request->body
+                    ],
+                    'webpush' => [
+                        'fcmOptions' => [
+                            'link' => url('/')
+                        ]
+                    ],
+                    'data' => [
+                        'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
+                    ]
+                ]);
+
+                $this->messaging->send($message);
+                $successCount++;
+                \Log::info('Successfully sent notification');
+            } catch (\Exception $e) {
+                \Log::error('Failed to send to token', [
+                    'token' => substr($token, 0, 50) . '...',
+                    'error' => $e->getMessage()
+                ]);
+                $failureMessages[] = $e->getMessage();
+            }
+        }
+
+        if ($successCount > 0) {
+            return back()->with('success', "Notification sent to $successCount device(s) for user ID {$request->user_id}!");
+        } else {
+            return back()->with('error', 'Failed to send notifications: ' . implode(' | ', $failureMessages));
+        }
     } catch (\Exception $e) {
         \Log::error('FCM Send Error', [
             'message' => $e->getMessage(),
@@ -89,12 +144,7 @@ public function saveToken(Request $request)
             'line' => $e->getLine()
         ]);
         
-        $errorMsg = $e->getMessage();
-        if (strpos($errorMsg, 'Auth error') !== false) {
-            $errorMsg = 'Authentication error: Check that Firebase credentials are valid and Web Push service is enabled in Firebase Console.';
-        }
-        
-        return back()->with('error', 'Failed to send notification: ' . $errorMsg);
+        return back()->with('error', 'Failed to send notification: ' . $e->getMessage());
     }
 }
 

@@ -29,16 +29,17 @@
                         <form method="POST" action="{{ route('send.notification') }}">
                             @csrf
                             <div class="mb-3">
+                                <label for="user_id" class="form-label">User ID</label>
+                                <input type="number" class="form-control" id="user_id" name="user_id" placeholder="Enter user ID (e.g., 1, 2, 3)" required>
+                                <small class="form-text text-muted">The notification will be sent to all devices of this user</small>
+                            </div>
+                            <div class="mb-3">
                                 <label for="title" class="form-label">Title</label>
                                 <input type="text" class="form-control" id="title" name="title" required>
                             </div>
                             <div class="mb-3">
                                 <label for="body" class="form-label">Message</label>
                                 <textarea class="form-control" id="body" name="body" rows="3" required></textarea>
-                            </div>
-                            <div class="mb-3">
-                                <label for="token" class="form-label">FCM Token</label>
-                                <input type="text" class="form-control" id="token" name="token" required>
                             </div>
                             <button type="submit" class="btn btn-primary">Send Notification</button>
                         </form>

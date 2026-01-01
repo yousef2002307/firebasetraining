@@ -16,3 +16,4 @@ Route::post('save-token', [FirebaseController::class, 'saveToken'])->name('save.
 
 Route::get('/send-notification', [FirebaseController::class, 'showSendForm'])->name('notification.form');
 Route::post('/send-notification', [FirebaseController::class, 'sendNotification'])->name('send.notification');
+Route::get('/list-tokens', [FirebaseController::class, 'listUserTokens'])->name('list.tokens');
